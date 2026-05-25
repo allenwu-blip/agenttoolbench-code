@@ -4,13 +4,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
+from pathlib import Path  # noqa: F401  (used by `leaderboard --out`)
 
 from .orchestrator import run_scenario
 from .adapters.stub import StubAdapter
 from .adapters.claude_code import ClaudeCodeAdapter
 from .adapters.codex_cli import CodexCliAdapter
 from .adapters.aider import AiderAdapter
+from .adapters.openhands import OpenHandsAdapter
 
 
 def _parse_opts(opt_str: str) -> dict:
@@ -87,9 +88,18 @@ def _make_adapter(spec: str):
             kwargs["model"] = opts["model"]
         return AiderAdapter(**kwargs)
 
+    if name == "openhands":
+        opts = _parse_opts(opt_str)
+        kwargs = {}
+        if "model" in opts:
+            kwargs["model"] = opts["model"]
+        if "iterations" in opts:
+            kwargs["max_iterations"] = int(opts["iterations"])
+        return OpenHandsAdapter(**kwargs)
+
     raise SystemExit(
         f"adapter '{name}' not implemented yet. Supported: stub, claude-code, "
-        f"codex-cli, aider. OpenHands / SWE-agent next."
+        f"codex-cli, aider, openhands. SWE-agent next."
     )
 
 
@@ -118,6 +128,11 @@ def main(argv: list[str] | None = None) -> int:
 
     ls = sub.add_parser("list-scenarios", help="List all discovered scenarios.")
     ls.add_argument("--scenarios-dir", default=None)
+
+    lb = sub.add_parser("leaderboard", help="Render results.jsonl as a leaderboard (Markdown / HTML).")
+    lb.add_argument("results", help="Path to a results.jsonl file.")
+    lb.add_argument("--format", choices=["markdown", "md", "html"], default="markdown")
+    lb.add_argument("--out", default=None, help="Write output to a file (default: stdout).")
 
     args = ap.parse_args(argv)
 
@@ -157,6 +172,23 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {sc.category:10s} {sc.id:50s} {sc_path}")
             except Exception as e:
                 print(f"  ?          (load failed: {e})  {sc_path}")
+        return 0
+
+    if args.cmd == "leaderboard":
+        from .leaderboard import load_results, compute_leaderboard, render_markdown, render_html
+        rows = load_results(args.results)
+        if not rows:
+            print(f"warning: no rows loaded from {args.results}", file=sys.stderr)
+        data = compute_leaderboard(rows)
+        if args.format == "html":
+            rendered = render_html(data)
+        else:
+            rendered = render_markdown(data)
+        if args.out:
+            Path(args.out).write_text(rendered)
+            print(f"wrote {args.out} ({len(rendered)} chars)")
+        else:
+            print(rendered)
         return 0
 
     return 2

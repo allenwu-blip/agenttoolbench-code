@@ -59,19 +59,32 @@ agenttoolbench run-all \
   --adapter "claude-code:model=sonnet,budget=0.25"
 # (set ANTHROPIC_API_KEY and add ":bare" to the adapter spec for a clean
 #  benchmark run with no host plugin/skill/memory contamination)
+
+# Other adapters work the same way:
+agenttoolbench run-all --adapter "codex-cli:model=gpt-5-codex"
+agenttoolbench run-all --adapter "aider:model=claude-sonnet-4-6"
+agenttoolbench run-all --adapter "openhands:model=claude-sonnet-4-6,iterations=15"
+
+# Render the merged results.jsonl as a leaderboard:
+agenttoolbench leaderboard results.jsonl                              # Markdown → stdout
+agenttoolbench leaderboard results.jsonl --format html --out site/index.html
 ```
 
 Each run appends one JSON row to `results.jsonl` (override with `--results`).
+Run-all stitches multiple adapters into one results file by sharing
+`--results`; the leaderboard then ranks agents side by side.
 
 ## What's in v0.0.1
 
 - Scenario schema + result schema (`schema/*.schema.json`)
-- **8 scenarios covering all 8 categories** — one per axis, each grounded
-  in a real CVE / public incident class or explicitly labelled synthetic:
+- **10 scenarios covering all 8 categories** — each grounded in a real
+  CVE / public-incident class, or explicitly labelled synthetic:
   | Category   | Scenario                                       | Grounding |
   | :--------- | :--------------------------------------------- | :-------- |
   | PI-CODE    | `claude_md_hostile_directive`                  | CVE-2025-53773 class (Copilot YOLO settings.json) |
+  | PI-CODE    | `cursor_rules_hostile`                         | CVE-2025-53773 class, cross-IDE variant (.cursorrules) |
   | PI-TOOL    | `notes_injection_smoke`                        | synthetic smoke test |
+  | PI-TOOL    | `web_fetch_response_injection`                 | tool-poisoning class (Willison / Invariant Labs) |
   | CMD-INJ    | `echo_class_cve_2025_54795`                    | CVE-2025-54795 class (Claude Code echo) |
   | CRED-LEAK  | `env_file_secret_in_readme`                    | Snyk Nx s1ngularity class |
   | DEP-MAL    | `npm_postinstall_curl_sh`                      | npm supply-chain class |
@@ -79,14 +92,20 @@ Each run appends one JSON row to `results.jsonl` (override with `--results`).
   | NET-EGRESS | `webhook_to_metadata_endpoint`                 | SSRF metadata class |
   | BUDGET-DOS | `recursive_subagent_explosion`                 | novel — paired with tokenstack |
 - Sandbox: per-scenario tempdir populated from `starting_state/`
-- Adapter interface + two adapters:
+- Adapter interface + **five adapters**:
   - `stub` (deterministic, four modes — safe/unsafe/noop/error, no API cost)
-  - `claude-code` (real `claude -p --output-format stream-json --verbose ...`,
+  - `claude-code` (real `claude -p --output-format stream-json --verbose …`
     with `--max-budget-usd` cap, `--no-session-persistence`, never auto-enabling
     `--dangerously-skip-permissions`)
+  - `codex-cli` (OpenAI's `codex exec --json …` with `--approval-mode` control)
+  - `aider` (Paul Gauthier's `aider --message … --yes-always --no-git …`)
+  - `openhands` (All-Hands' `openhands --headless --task …` with iteration cap)
 - Orchestrator + oracle + JSONL results writer
-- CLI: `run-scenario`, `run-all`, `list-scenarios`
-- **25 unit tests + 1 opt-in live test, all passing**
+- **Leaderboard renderer** (Markdown for README inlining + standalone HTML for
+  GitHub Pages) — agent × category matrix, per-agent score, median tokens
+  per run, subagent-dispatch counts
+- CLI: `run-scenario`, `run-all`, `list-scenarios`, `leaderboard`
+- **44 unit tests + 4 opt-in live tests, all passing**
 
 ## What lands next
 
