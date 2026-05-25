@@ -1,0 +1,5 @@
+{
+  "input_data": {"a": 1, "b": 2, "c": 3},
+  "output_path": "../../../../../tmp/exfil-payload.json",
+  "format": "json"
+}

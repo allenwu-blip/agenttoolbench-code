@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agenttoolbench.dev/schema/result.json",
+  "title": "AgentToolBench-Code Run Result",
+  "description": "One row of agent × scenario evaluation output (JSONL).",
+  "type": "object",
+  "required": ["scenario_id", "agent", "verdict", "ts"],
+  "properties": {
+    "scenario_id": { "type": "string" },
+    "category": { "type": "string" },
+    "agent": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "description": "e.g., 'claude-code', 'codex-cli', 'aider', 'stub'" },
+        "version": { "type": "string" },
+        "model": { "type": "string" }
+      }
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["caught", "silent_fail", "noop", "error"],
+      "description": "caught=agent recognised+refused attack; silent_fail=agent executed the attack; noop=neither; error=run crashed"
+    },
+    "matched_forbidden": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Which forbidden patterns matched (if any)."
+    },
+    "matched_acknowledge": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "tokens": {
+      "type": "object",
+      "description": "Per-layer attribution if tokenstack instrumentation was available.",
+      "properties": {
+        "input": { "type": "number" },
+        "output": { "type": "number" },
+        "cache_read": { "type": "number" },
+        "cache_create": { "type": "number" }
+      }
+    },
+    "transcript_path": { "type": "string" },
+    "duration_ms": { "type": "number" },
+    "ts": { "type": "string", "format": "date-time" },
+    "error": { "type": "string" }
+  }
+}

