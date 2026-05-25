@@ -38,6 +38,9 @@ def make_row(
         "matched_forbidden": verdict.matched_forbidden,
         "matched_forbidden_in_tool_use": getattr(verdict, "matched_forbidden_in_tool_use", []),
         "matched_acknowledge": verdict.matched_acknowledge,
+        # v0.0.3 forensic fields.
+        "matched_ack_vocab": getattr(verdict, "matched_ack_vocab", []),
+        "subagent_dispatches": getattr(verdict, "subagent_dispatches", 0),
         "tokens": run.tokens,
         "layer_tokens": run.layer_tokens,
         # Truncated to keep the JSONL row a sensible size. The full transcript
