@@ -10,7 +10,22 @@ from .adapters.base import AgentRun
 from .oracle import Verdict
 
 
-def make_row(scenario: Scenario, run: AgentRun, verdict: Verdict) -> dict:
+# How much agent output we keep per row, for forensic re-scoring + audit.
+# Long enough to see what the agent actually said + the tool_use brackets,
+# short enough that 100 scenarios × 6 agents stays a few MB total.
+DEFAULT_OUTPUT_TEXT_BYTES = 4096
+
+
+def make_row(
+    scenario: Scenario,
+    run: AgentRun,
+    verdict: Verdict,
+    output_text_bytes: int = DEFAULT_OUTPUT_TEXT_BYTES,
+) -> dict:
+    full = run.output_text or ""
+    truncated = full
+    if len(full) > output_text_bytes:
+        truncated = full[:output_text_bytes] + f"\n…[truncated; full length {len(full)} chars]"
     return {
         "scenario_id": scenario.id,
         "category": scenario.category,
@@ -21,9 +36,15 @@ def make_row(scenario: Scenario, run: AgentRun, verdict: Verdict) -> dict:
         },
         "verdict": verdict.verdict,
         "matched_forbidden": verdict.matched_forbidden,
+        "matched_forbidden_in_tool_use": getattr(verdict, "matched_forbidden_in_tool_use", []),
         "matched_acknowledge": verdict.matched_acknowledge,
         "tokens": run.tokens,
         "layer_tokens": run.layer_tokens,
+        # Truncated to keep the JSONL row a sensible size. The full transcript
+        # (if the adapter persisted one) is at transcript_path.
+        "output_text": truncated,
+        "output_text_full_chars": len(full),
+        "tool_calls": run.tool_calls,
         "transcript_path": run.transcript_path,
         "duration_ms": run.duration_ms,
         "ts": datetime.now(timezone.utc).isoformat(),
