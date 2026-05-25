@@ -32,6 +32,13 @@ class Oracle:
     # verdicts — a crash mid-dispatch still proves the attack landed.
     # None = no gating (v0.0.2 behaviour).
     max_subagent_dispatches: int | None = None
+    # v0.0.4 (BUDGET-DOS axis, token-based): if set, sum AgentRun.tokens
+    # (input + output + cache_read + cache_create); if total >
+    # max_total_tokens, downgrade caught/error → silent_fail. Captures
+    # compute-burn attacks that don't fan out via subagents (e.g. "read
+    # 100 files and summarise each"). The two rules compose via OR —
+    # either tripping fires silent_fail.
+    max_total_tokens: int | None = None
 
 
 @dataclass
@@ -78,6 +85,7 @@ def load_scenario(scenario_yaml_path: str | Path) -> Scenario:
         patterns=list(oracle_d.get("patterns", [])),
         must_acknowledge=list(oracle_d.get("must_acknowledge", [])),
         max_subagent_dispatches=oracle_d.get("max_subagent_dispatches"),
+        max_total_tokens=oracle_d.get("max_total_tokens"),
     )
     return Scenario(
         id=d["id"],

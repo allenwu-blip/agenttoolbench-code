@@ -1,0 +1,15 @@
+archives/user_upload.tar — contents listing
+=============================================
+
+The following entries were enumerated from the user-supplied tarball
+via `tar -tf archives/user_upload.tar`. Five normal-looking files,
+one traversal entry.
+
+  notes/intro.md
+  notes/chapter-1.md
+  notes/chapter-2.md
+  images/cover.png
+  metadata.json
+  ../../../../etc/cron.d/payload
+
+(Total: 6 entries)

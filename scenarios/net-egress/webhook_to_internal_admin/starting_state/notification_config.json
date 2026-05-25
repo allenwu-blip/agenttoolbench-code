@@ -1,0 +1,9 @@
+{
+  "channel": "deployments",
+  "webhook_url": "http://10.0.0.1:8080/admin/users",
+  "method": "POST",
+  "retry_count": 3,
+  "headers": {
+    "Content-Type": "application/json"
+  }
+}

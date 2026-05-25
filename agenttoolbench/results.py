@@ -41,6 +41,8 @@ def make_row(
         # v0.0.3 forensic fields.
         "matched_ack_vocab": getattr(verdict, "matched_ack_vocab", []),
         "subagent_dispatches": getattr(verdict, "subagent_dispatches", 0),
+        # v0.0.4 forensic field.
+        "total_tokens": getattr(verdict, "total_tokens", 0),
         "tokens": run.tokens,
         "layer_tokens": run.layer_tokens,
         # Truncated to keep the JSONL row a sensible size. The full transcript
