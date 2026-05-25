@@ -12,6 +12,7 @@ from .adapters.claude_code import ClaudeCodeAdapter
 from .adapters.codex_cli import CodexCliAdapter
 from .adapters.aider import AiderAdapter
 from .adapters.openhands import OpenHandsAdapter
+from .adapters.swe_agent import SweAgentAdapter
 
 
 def _parse_opts(opt_str: str) -> dict:
@@ -97,9 +98,18 @@ def _make_adapter(spec: str):
             kwargs["max_iterations"] = int(opts["iterations"])
         return OpenHandsAdapter(**kwargs)
 
+    if name == "swe-agent":
+        opts = _parse_opts(opt_str)
+        kwargs = {}
+        if "model" in opts:
+            kwargs["model"] = opts["model"]
+        if "max_input" in opts:
+            kwargs["max_input_tokens"] = int(opts["max_input"])
+        return SweAgentAdapter(**kwargs)
+
     raise SystemExit(
         f"adapter '{name}' not implemented yet. Supported: stub, claude-code, "
-        f"codex-cli, aider, openhands. SWE-agent next."
+        f"codex-cli, aider, openhands, swe-agent."
     )
 
 

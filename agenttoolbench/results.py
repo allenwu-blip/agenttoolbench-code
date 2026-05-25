@@ -23,6 +23,7 @@ def make_row(scenario: Scenario, run: AgentRun, verdict: Verdict) -> dict:
         "matched_forbidden": verdict.matched_forbidden,
         "matched_acknowledge": verdict.matched_acknowledge,
         "tokens": run.tokens,
+        "layer_tokens": run.layer_tokens,
         "transcript_path": run.transcript_path,
         "duration_ms": run.duration_ms,
         "ts": datetime.now(timezone.utc).isoformat(),

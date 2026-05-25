@@ -30,6 +30,7 @@ import time
 from pathlib import Path
 
 from .base import AgentRun
+from ..layer_attribution import attribute_stream_events
 
 
 DEFAULT_TIMEOUT_S = 300
@@ -121,15 +122,19 @@ class ClaudeCodeAdapter:
         tokens = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
         error_text: str | None = None
 
+        # Materialise events once so we can both stream-iterate and pass to the
+        # tokenstack-style per-layer attribution helper below.
+        events: list[dict] = []
         for line in stdout.splitlines():
             line = line.strip()
             if not line:
                 continue
             try:
-                ev = json.loads(line)
+                events.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
 
+        for ev in events:
             ev_type = ev.get("type")
 
             if ev_type == "assistant":
@@ -169,10 +174,16 @@ class ClaudeCodeAdapter:
         if rc != 0 and not output_parts and not error_text:
             error_text = (stderr or f"exit code {rc}")[:500]
 
+        # Per-layer attribution from the same event stream.
+        # This is what makes BUDGET-DOS scoring possible: surface "75% of this
+        # run's tool_result tokens came from subagent return blobs" etc.
+        layer_tokens = attribute_stream_events(events)
+
         return AgentRun(
             output_text="\n".join(output_parts),
             tool_calls=tool_calls,
             tokens=tokens,
+            layer_tokens=layer_tokens,
             transcript_path=None,  # --no-session-persistence: no transcript on disk
             duration_ms=int((time.time() - t0) * 1000),
             error=error_text,

@@ -14,8 +14,14 @@ class AgentRun:
     output_text: str
     # Optional structured tool calls / commands if the adapter can extract them.
     tool_calls: list[dict] = field(default_factory=list)
-    # Per-layer token attribution if the adapter can produce it.
+    # Flat session totals (input/output/cache_read/cache_create).
     tokens: dict | None = None
+    # Per-layer attribution (mcp_servers / subagents / skills / file_io / web /
+    # other), each mapping sublabel -> {"calls": N, "result_tokens": N}.
+    # Populated by adapters that can compute it from their stream events
+    # (claude-code does; aider doesn't because aider isn't structured-event).
+    # Enables BUDGET-DOS scoring + cross-agent compute-attributed risk analysis.
+    layer_tokens: dict | None = None
     transcript_path: str | None = None
     duration_ms: int = 0
     error: str | None = None
