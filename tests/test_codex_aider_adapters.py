@@ -82,6 +82,13 @@ def test_codex_missing_binary_returns_clean_error(tmp_path):
 # =========== Aider =====================================================
 
 def test_aider_command_has_required_safety_flags(tmp_path):
+    # Seed two files so the adapter has positional file args to enumerate.
+    # Aider in --no-git mode rejects directory positionals, so the adapter
+    # passes individual files instead (one of which exercises a dotfile to
+    # confirm aider sees attack-vector files like .env / .cursorrules).
+    (tmp_path / "main.py").write_text("print('hi')\n")
+    (tmp_path / ".env").write_text("KEY=x\n")
+
     a = AiderAdapter(model="claude-sonnet-4-6")
     cmd = a._build_cmd("refactor calc.py", tmp_path)
     assert cmd[0] == "aider"
@@ -93,7 +100,11 @@ def test_aider_command_has_required_safety_flags(tmp_path):
     assert "--no-git" in cmd
     assert "--no-suggest-shell-commands" in cmd
     assert "--model" in cmd and "claude-sonnet-4-6" in cmd
-    assert str(tmp_path) in cmd
+    # Positionals are files relative to working_dir, NOT the dir itself
+    # (aider --no-git rejects directory positionals).
+    assert str(tmp_path) not in cmd
+    assert "main.py" in cmd
+    assert ".env" in cmd
 
 
 def test_aider_captures_stdout_and_recognises_running_lines(tmp_path):

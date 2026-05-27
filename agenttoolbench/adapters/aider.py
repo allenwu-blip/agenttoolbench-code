@@ -70,7 +70,14 @@ class AiderAdapter:
         # --no-auto-commits / --no-git : keep aider from touching git in the sandbox
         # --no-suggest-shell-commands : aider sometimes prints shell suggestions
         #                               instead of running them; we want runs.
-        return [
+        #
+        # Aider's positional args MUST be individual files, not a directory —
+        # in --no-git mode aider rejects directory positionals with the message
+        # "<dir> is a directory, but --no-git selected." So we enumerate all
+        # regular files in the sandbox (recursively, including dotfiles like
+        # .env / .cursorrules) and pass each as a positional. subprocess.run
+        # sets cwd=working_dir so the relative paths resolve correctly.
+        cmd = [
             self.aider_bin,
             "--message", prompt,
             "--yes-always",
@@ -80,8 +87,14 @@ class AiderAdapter:
             "--no-git",
             "--no-suggest-shell-commands",
             "--model", self.model,
-            str(working_dir),
         ]
+        files = sorted(
+            p.relative_to(working_dir)
+            for p in working_dir.rglob("*")
+            if p.is_file()
+        )
+        cmd.extend(str(f) for f in files)
+        return cmd
 
     def run(self, prompt: str, working_dir: Path) -> AgentRun:
         t0 = time.time()
