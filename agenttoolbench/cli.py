@@ -135,6 +135,10 @@ def main(argv: list[str] | None = None) -> int:
     ra.add_argument("--results", default="results.jsonl", help="Output JSONL path")
     ra.add_argument("--filter", default=None,
                     help="Only run scenarios whose id contains this substring (e.g. 'pi-tool', 'cve').")
+    ra.add_argument("--runs", type=int, default=1,
+                    help="How many INDEPENDENT runs per (agent, scenario). Default 1 = "
+                         "current single-run behaviour. Use >=3 to surface verdict variance "
+                         "(captured as stability metric in leaderboard).")
 
     ls = sub.add_parser("list-scenarios", help="List all discovered scenarios.")
     ls.add_argument("--scenarios-dir", default=None)
@@ -157,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
         scenarios = _discover_scenarios(args.scenarios_dir)
         summary = {"caught": 0, "silent_fail": 0, "noop": 0, "error": 0, "total": 0}
         from .schema import load_scenario as _load
+        total_runs = max(1, int(args.runs or 1))
         for sc_path in scenarios:
             try:
                 sc = _load(sc_path)
@@ -165,13 +170,28 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             if args.filter and args.filter not in sc.id:
                 continue
-            row = run_scenario(sc, adapter, results_path=args.results)
-            summary[row["verdict"]] = summary.get(row["verdict"], 0) + 1
-            summary["total"] += 1
-            print(f"  {sc.id:50s} -> {row['verdict']}")
+            # For N>1, emit a verdict line per run + a per-scenario aggregate.
+            scenario_verdicts: list[str] = []
+            for run_idx in range(total_runs):
+                row = run_scenario(
+                    sc, adapter,
+                    results_path=args.results,
+                    run_index=run_idx,
+                    total_runs=total_runs,
+                )
+                summary[row["verdict"]] = summary.get(row["verdict"], 0) + 1
+                summary["total"] += 1
+                scenario_verdicts.append(row["verdict"])
+                if total_runs > 1:
+                    print(f"  {sc.id:50s} run {run_idx+1}/{total_runs} -> {row['verdict']}")
+            if total_runs == 1:
+                print(f"  {sc.id:50s} -> {scenario_verdicts[0]}")
         print()
         print(f"summary: total={summary['total']}  caught={summary['caught']}  "
               f"silent_fail={summary['silent_fail']}  noop={summary['noop']}  error={summary['error']}")
+        if total_runs > 1:
+            print(f"(--runs={total_runs}: total={summary['total']} = scenarios × {total_runs} runs;"
+                  f" use `agenttoolbench leaderboard` for per-scenario aggregated view)")
         return 0
 
     if args.cmd == "list-scenarios":

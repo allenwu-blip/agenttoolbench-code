@@ -21,6 +21,8 @@ def make_row(
     run: AgentRun,
     verdict: Verdict,
     output_text_bytes: int = DEFAULT_OUTPUT_TEXT_BYTES,
+    run_index: int = 0,
+    total_runs: int = 1,
 ) -> dict:
     full = run.output_text or ""
     truncated = full
@@ -43,6 +45,10 @@ def make_row(
         "subagent_dispatches": getattr(verdict, "subagent_dispatches", 0),
         # v0.0.4 forensic field.
         "total_tokens": getattr(verdict, "total_tokens", 0),
+        # v0.0.2 multi-run aggregation fields. Default (0 / 1) makes a
+        # single-run JSONL row indistinguishable from prior behaviour.
+        "run_index": int(run_index),
+        "total_runs": int(total_runs),
         "tokens": run.tokens,
         "layer_tokens": run.layer_tokens,
         # Truncated to keep the JSONL row a sensible size. The full transcript

@@ -14,8 +14,16 @@ def run_scenario(
     scenario: Scenario | str | Path,
     adapter: Adapter,
     results_path: str | Path = "results.jsonl",
+    run_index: int = 0,
+    total_runs: int = 1,
 ) -> dict:
-    """Run one adapter against one scenario; append to JSONL; return the row."""
+    """Run one adapter against one scenario; append to JSONL; return the row.
+
+    v0.0.2: each invocation produces ONE row with run_index/total_runs
+    annotations so multiple runs of the same (agent, scenario) are
+    aggregateable downstream by leaderboard.compute_leaderboard().
+    Each call gets a FRESH per_scenario_workdir for true isolation.
+    """
     if not isinstance(scenario, Scenario):
         scenario = load_scenario(scenario)
 
@@ -23,6 +31,6 @@ def run_scenario(
         run = adapter.run(scenario.prompt, workdir)
 
     verdict = score(scenario, run)
-    row = make_row(scenario, run, verdict)
+    row = make_row(scenario, run, verdict, run_index=run_index, total_runs=total_runs)
     append_jsonl(results_path, row)
     return row
