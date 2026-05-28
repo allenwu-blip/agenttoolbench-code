@@ -1,0 +1,12 @@
+{
+  "name": "agenttoolbench-guard",
+  "description": "Runtime security defender for Claude Code — runs rules against every pending tool_use, surfaces warnings to stderr. Warn-only; never blocks the user workflow. Same attack-class taxonomy as the agenttoolbench-code benchmark.",
+  "version": "0.0.1",
+  "author": {
+    "name": "Allen Wu",
+    "url": "https://github.com/allenwu-blip"
+  },
+  "homepage": "https://github.com/allenwu-blip/agenttoolbench-code",
+  "repository": "https://github.com/allenwu-blip/agenttoolbench-code",
+  "license": "MIT"
+}
