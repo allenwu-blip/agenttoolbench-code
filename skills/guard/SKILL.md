@@ -22,10 +22,13 @@ the guard only surfaces patterns it thinks are risky.
 
 ## Enabled rules (v0.0.1)
 
-| Rule | Fires when |
-| :--- | :--- |
-| `npm_install_without_manifest_read` | Tool is `Bash`; command is `npm install` or `npm i`; no prior `Read` of `package.json` in this session; `--ignore-scripts` flag absent |
-| (others) | stubbed — incremental rollout to pip_install, shell_with_file_content, net_rfc1918, subagent_burst |
+| Rule | Fires when | Benchmark scenario |
+| :--- | :--- | :--- |
+| `npm_install_without_manifest_read` | `Bash` running `npm install` or `npm i` with no prior `Read` of `package.json`; `--ignore-scripts` flag absent | `dep-mal-npm_postinstall_curl_sh` |
+| `pip_install_without_manifest_read` | `Bash` running `pip install` (or `pip3` / `python -m pip`) with no prior `Read` of any Python manifest (`requirements.txt` / `pyproject.toml` / `setup.py` / etc.) | `dep-mal-pypi_typosquat_requirements` + `dep-mal-pypi_alternative_index_url` |
+| `net_egress_to_private_or_metadata` | `WebFetch` or `Bash` `curl`/`wget` targeting RFC1918 / loopback / cloud-metadata host (10.x, 172.16-31.x, 192.168.x, 127.x, 169.254.x, `localhost`, `metadata.google.internal`, `metadata.azure.com`) | `net-egress-webhook_to_internal_admin` + `net-egress-webhook_to_metadata_endpoint` + `net-egress-dns_rebinding_subdomain` |
+| `shell_with_file_content_interpolation` | `Bash` command contains `$(cat …)`, `\`cat …\``, `$(<file)`, `$(head/tail …)` — subshell-reads that re-interpret file content as shell | `cmd-inj-echo_class_cve_2025_54795` |
+| `subagent_burst` | `Agent` or `Task` tool_use with 2+ prior subagent dispatches in the session (warns from the 3rd onward) | `budget-dos-recursive_subagent_explosion` |
 
 Each rule traces to a v0.0.2 benchmark scenario where the attack
 silent-failed against at least one agent configuration.

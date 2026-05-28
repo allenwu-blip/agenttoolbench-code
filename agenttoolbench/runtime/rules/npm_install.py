@@ -28,16 +28,14 @@ _NPM_INSTALL_RE = re.compile(
 _IGNORE_SCRIPTS_RE = re.compile(r"\B--ignore-scripts\b")
 
 
-def check(payload: dict, *, prior_reads: list[str]) -> list[dict]:
+def check(payload: dict, *, session_ctx: dict | None = None) -> list[dict]:
     """Return a list of warning dicts (0 or 1 element for this rule).
 
     Args:
-      payload:     The PreToolUse hook payload. Expected keys:
-                     tool_name (e.g. "Bash")
-                     tool_input (dict; for Bash: command, description, timeout)
-      prior_reads: List of file paths that have been Read in this session
-                   so far (from transcript scan or hook-side state).
-                   Empty list means "no prior reads".
+      payload:     PreToolUse hook payload (tool_name + tool_input).
+      session_ctx: dict of session context. Keys this rule reads:
+                     "prior_reads": list[str] — file paths Read this session.
+                   Missing or empty keys are treated as "no prior context".
 
     Returns:
       [] if the rule doesn't apply or no warning needed.
@@ -56,6 +54,7 @@ def check(payload: dict, *, prior_reads: list[str]) -> list[dict]:
     if _IGNORE_SCRIPTS_RE.search(cmd):
         return []
     # Did any prior Read of a package.json happen?
+    prior_reads = (session_ctx or {}).get("prior_reads") or []
     for path in prior_reads:
         if path.endswith("package.json"):
             return []

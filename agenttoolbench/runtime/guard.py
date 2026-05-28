@@ -30,30 +30,47 @@ import json
 import sys
 from pathlib import Path
 
-from .rules import npm_install
+from .rules import (
+    npm_install,
+    pip_install,
+    net_rfc1918,
+    shell_with_file_content,
+    subagent_burst,
+)
 
 
-# Registry of enabled rules. Each rule exposes a `check(payload, *,
-# prior_reads) -> list[dict]` function. v0.0.1 ships with the
-# npm_install rule only; others are stubbed for incremental rollout.
+# Registry of enabled rules. Each rule exposes a
+# `check(payload, *, session_ctx) -> list[dict]` function where
+# session_ctx is a dict of optional context keys:
+#   - "prior_reads":            list[str] — files Read this session
+#   - "prior_subagent_count":   int — number of Agent/Task dispatches so far
+# New rules drop in alongside the others.
 _RULES = [
     npm_install,
+    pip_install,
+    net_rfc1918,
+    shell_with_file_content,
+    subagent_burst,
 ]
 
 
-def collect_prior_reads(transcript_path: str | None) -> list[str]:
-    """Scan the session transcript JSONL for tool_use blocks of type
-    "Read" and return the file_paths that were read.
+def collect_session_context(transcript_path: str | None) -> dict:
+    """Scan the session transcript JSONL once and collect every context
+    field rules might want. Returns a dict with:
+      - "prior_reads":          list[str] — files Read so far
+      - "prior_subagent_count": int — Agent/Task tool_uses so far
 
-    Returns [] if transcript missing, unreadable, or malformed.
+    Returns sensible defaults if transcript missing / unreadable.
     Defensive: never raises.
+
+    Single-pass over the transcript so we don't read it once per rule.
     """
+    ctx: dict = {"prior_reads": [], "prior_subagent_count": 0}
     if not transcript_path:
-        return []
+        return ctx
     p = Path(transcript_path)
     if not p.is_file():
-        return []
-    reads: list[str] = []
+        return ctx
     try:
         with p.open(encoding="utf-8") as f:
             for line in f:
@@ -64,9 +81,6 @@ def collect_prior_reads(transcript_path: str | None) -> list[str]:
                     rec = json.loads(line)
                 except Exception:
                     continue
-                # Anthropic transcript shape: assistant messages contain
-                # `message.content` blocks; tool_use blocks have name +
-                # input. We scan for Read tool_use specifically.
                 msg = rec.get("message") or {}
                 content = msg.get("content") or []
                 if not isinstance(content, list):
@@ -76,26 +90,45 @@ def collect_prior_reads(transcript_path: str | None) -> list[str]:
                         continue
                     if block.get("type") != "tool_use":
                         continue
-                    if block.get("name") != "Read":
-                        continue
-                    inp = block.get("input") or {}
-                    fp = inp.get("file_path")
-                    if isinstance(fp, str):
-                        reads.append(fp)
+                    name = block.get("name")
+                    if name == "Read":
+                        inp = block.get("input") or {}
+                        fp = inp.get("file_path")
+                        if isinstance(fp, str):
+                            ctx["prior_reads"].append(fp)
+                    elif name in ("Agent", "Task"):
+                        ctx["prior_subagent_count"] += 1
     except Exception:
-        # Defensive: any transcript parse failure → no prior reads.
-        # Better to miss context than to crash the hook.
-        return reads
-    return reads
+        # Defensive: any transcript parse failure → return partial ctx.
+        # Better to under-collect than to crash the hook.
+        return ctx
+    return ctx
 
 
-def run_rules(payload: dict, prior_reads: list[str]) -> list[dict]:
+# Backward-compat shim: old function name still works.
+def collect_prior_reads(transcript_path: str | None) -> list[str]:
+    """Deprecated; use collect_session_context. Kept for backward compat."""
+    return collect_session_context(transcript_path)["prior_reads"]
+
+
+def run_rules(payload: dict, prior_reads: list[str] | None = None,
+              session_ctx: dict | None = None) -> list[dict]:
     """Run every enabled rule against the payload + context. Return
-    flat list of warnings. Each rule failure is swallowed."""
+    flat list of warnings. Each rule failure is swallowed.
+
+    Accepts either:
+      - `prior_reads=[...]` (legacy positional kwarg, wraps into session_ctx)
+      - `session_ctx={"prior_reads": [...], ...}` (preferred, extensible)
+    """
+    if session_ctx is None:
+        session_ctx = {"prior_reads": prior_reads or []}
+    elif prior_reads is not None and "prior_reads" not in session_ctx:
+        session_ctx = {**session_ctx, "prior_reads": prior_reads}
+
     warnings: list[dict] = []
     for rule_mod in _RULES:
         try:
-            result = rule_mod.check(payload, prior_reads=prior_reads)
+            result = rule_mod.check(payload, session_ctx=session_ctx)
         except Exception:
             continue
         if isinstance(result, list):
@@ -149,8 +182,8 @@ def main() -> int:
         payload = json.loads(raw)
         if not isinstance(payload, dict):
             return 0
-        prior_reads = collect_prior_reads(payload.get("transcript_path"))
-        warnings = run_rules(payload, prior_reads)
+        session_ctx = collect_session_context(payload.get("transcript_path"))
+        warnings = run_rules(payload, session_ctx=session_ctx)
         if warnings:
             sys.stderr.write(format_warnings(warnings) + "\n")
     except Exception:
