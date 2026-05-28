@@ -25,57 +25,68 @@ def _cp(stdout: str, stderr: str = "", rc: int = 0):
 # =========== Codex CLI =================================================
 
 def test_codex_command_has_required_safety_flags(tmp_path):
-    # codex 0.1.2+ uses --full-auto for the non-interactive "skip all
-    # approval prompts" mode. The pre-0.1.2 "--approval-mode auto" string
-    # we used initially is not a valid codex flag value — codex's real
-    # values are suggest / auto-edit / never. --full-auto is the official
-    # shortcut combining approval-mode=never + sandbox=workspace-write.
-    a = CodexCliAdapter(model="gpt-5-codex", full_auto=True)
+    # codex 0.134 (Oct 2026) deprecated --full-auto and rejects running in
+    # non-git dirs without --skip-git-repo-check. Adapter now uses the
+    # current flag set: --sandbox workspace-write + --skip-git-repo-check.
+    a = CodexCliAdapter(model="gpt-5-codex", sandbox_mode="workspace-write")
     cmd = a._build_cmd("do the thing", tmp_path)
     assert cmd[0] == "codex" and cmd[1] == "exec"
     assert "--cd" in cmd and str(tmp_path) in cmd
     assert "--json" in cmd
     assert "--model" in cmd and "gpt-5-codex" in cmd
     assert "do the thing" in cmd
-    assert "--full-auto" in cmd
-    # The old (wrong) flag must NOT appear.
+    assert "--sandbox" in cmd and "workspace-write" in cmd
+    assert "--skip-git-repo-check" in cmd
+    # Deprecated / wrong flags from earlier adapter versions must NOT appear.
+    assert "--full-auto" not in cmd
     assert "--approval-mode" not in cmd
     # Never auto-enable dangerous modes
     assert "--dangerously-skip-permissions" not in cmd
+    assert "--dangerously-bypass-approvals-and-sandbox" not in cmd
+    assert "danger-full-access" not in cmd
 
 
-def test_codex_full_auto_false_omits_flag(tmp_path):
-    """For users who want codex's interactive 'suggest' default
-    (e.g. when they trust their own user-shell approval), the adapter
-    omits --full-auto entirely."""
-    a = CodexCliAdapter(model="gpt-5-codex", full_auto=False)
-    cmd = a._build_cmd("do x", tmp_path)
-    assert "--full-auto" not in cmd
-    assert "--approval-mode" not in cmd  # never use the broken flag
+def test_codex_sandbox_mode_configurable(tmp_path):
+    """Users can opt into read-only for a stricter sandbox — useful for
+    read-only auditing scenarios where the agent shouldn't write files."""
+    a = CodexCliAdapter(model="gpt-5-codex", sandbox_mode="read-only")
+    cmd = a._build_cmd("inspect", tmp_path)
+    assert "--sandbox" in cmd and "read-only" in cmd
+    assert "workspace-write" not in cmd
 
 
-def test_codex_parses_text_tool_call_completed(tmp_path):
+def test_codex_parses_real_0134_event_shape(tmp_path):
+    """Real codex 0.134 emits item.completed events with nested item.type,
+    not the message/tool_call/completed shapes we initially assumed."""
     events = [
-        {"type": "message", "role": "assistant",
-         "content": [{"type": "text", "text": "I'll list the files."}]},
-        {"type": "tool_call", "name": "shell",
-         "arguments": {"command": ["bash", "-lc", "ls"]}},
-        {"type": "message", "role": "assistant",
-         "content": [{"type": "text", "text": "Found 3 files."}]},
-        {"type": "completed", "usage": {"input_tokens": 200, "output_tokens": 30}},
+        {"type": "thread.started", "thread_id": "abc"},
+        {"type": "turn.started"},
+        {"type": "item.started", "item": {"id": "item_0", "type": "command_execution",
+                                          "command": "ls", "status": "in_progress"}},
+        {"type": "item.completed", "item": {"id": "item_0", "type": "command_execution",
+                                            "command": "ls",
+                                            "aggregated_output": "a.txt\n",
+                                            "exit_code": 0, "status": "completed"}},
+        {"type": "item.completed", "item": {"id": "item_1", "type": "agent_message",
+                                            "text": "Found 1 file."}},
+        {"type": "turn.completed",
+         "usage": {"input_tokens": 200, "output_tokens": 30,
+                   "cached_input_tokens": 50, "reasoning_output_tokens": 0}},
     ]
     stdout = "\n".join(json.dumps(e) for e in events) + "\n"
     with patch("shutil.which", return_value="/fake/codex"), \
          patch("subprocess.run") as mrun:
-        mrun.side_effect = [_cp("codex 0.5.0\n"), _cp(stdout)]
-        out = CodexCliAdapter().run("hi", tmp_path)
-    assert "I'll list the files." in out.output_text
-    assert "Found 3 files." in out.output_text
+        mrun.side_effect = [_cp("codex 0.134.0\n"), _cp(stdout)]
+        out = CodexCliAdapter().run("list", tmp_path)
+    assert "Found 1 file." in out.output_text
     assert "[TOOL_USE shell:" in out.output_text
-    assert any("ls" in str(v) for v in out.output_text.split("\n"))
-    assert out.tool_calls == [{"name": "shell", "input": {"command": ["bash", "-lc", "ls"]}}]
+    assert "ls" in out.output_text
+    assert "[TOOL_RESULT shell exit=0" in out.output_text
+    assert "a.txt" in out.output_text
+    assert out.tool_calls == [{"name": "shell", "input": {"command": "ls"}}]
     assert out.tokens["input"] == 200
     assert out.tokens["output"] == 30
+    assert out.tokens["cache_read"] == 50
     assert out.error is None
 
 
@@ -84,7 +95,7 @@ def test_codex_error_event_becomes_run_error(tmp_path):
     stdout = "\n".join(json.dumps(e) for e in events)
     with patch("shutil.which", return_value="/fake/codex"), \
          patch("subprocess.run") as mrun:
-        mrun.side_effect = [_cp("codex 0.5.0\n"), _cp(stdout, rc=1)]
+        mrun.side_effect = [_cp("codex 0.134.0\n"), _cp(stdout, rc=1)]
         out = CodexCliAdapter().run("x", tmp_path)
     assert out.error and "rate limited" in out.error
 

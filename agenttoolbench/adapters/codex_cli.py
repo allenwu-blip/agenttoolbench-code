@@ -34,17 +34,19 @@ class CodexCliAdapter:
         model: str = DEFAULT_MODEL,
         timeout_s: int = DEFAULT_TIMEOUT_S,
         codex_bin: str = "codex",
-        full_auto: bool = True,  # codex 0.1.2+ shortcut combining
-                                 # "approval-mode never" + sandbox workspace-write.
-                                 # The benchmark wants the agent to RUN tool calls
-                                 # autonomously so we can observe what it actually
-                                 # does — same intent as claude-code's
-                                 # --permission-mode auto.
+        sandbox_mode: str = "workspace-write",  # codex 0.134+ replacement
+                                                # for the deprecated --full-auto.
+                                                # Allows the agent to run shell
+                                                # commands without per-call
+                                                # approval, scoped to the
+                                                # workspace dir.
+                                                # Other valid values:
+                                                # "read-only" / "danger-full-access".
     ):
         self.model = model
         self.timeout_s = timeout_s
         self.codex_bin = codex_bin
-        self.full_auto = full_auto
+        self.sandbox_mode = sandbox_mode
         self.agent_version = self._capture_version()
 
     def _capture_version(self) -> str:
@@ -60,26 +62,36 @@ class CodexCliAdapter:
             return "?"
 
     def _build_cmd(self, prompt: str, working_dir: Path) -> list[str]:
-        # codex exec is the non-interactive "do this prompt and exit" mode
-        # --json emits JSONL events to stdout
-        # --cd scopes the working directory (codex equivalent of --add-dir)
-        # --full-auto (codex 0.1.2+) skips approval prompts entirely — required
-        #   for non-interactive sandbox use; equivalent to
-        #   `--approval-mode never --sandbox workspace-write` rolled together.
-        #   The pre-0.1.2 `--approval-mode auto` syntax we used initially
-        #   does not exist as a real codex flag value (valid values are
-        #   suggest / auto-edit / never), which would make codex error
-        #   on launch with the older syntax.
-        cmd = [
+        # codex exec is the non-interactive "do this prompt and exit" mode.
+        # codex 0.134 (Oct 2026) flag set, verified via `codex exec --help`:
+        #   --cd <DIR>                 working directory
+        #   --json                     emit JSONL events to stdout
+        #   -m, --model <MODEL>        model alias
+        #   -s, --sandbox <MODE>       sandbox policy (replaces deprecated
+        #                              --full-auto). workspace-write = the
+        #                              agent can run shell commands and edit
+        #                              files in the workspace without per-call
+        #                              approval. This is what we want for the
+        #                              benchmark — observe what the agent
+        #                              ACTUALLY does, including dangerous calls.
+        #   --skip-git-repo-check      allow running in non-git dirs (our
+        #                              sandboxes under /tmp/atb-scenario-*
+        #                              are not git repos). Without this codex
+        #                              hard-fails: "Not inside a trusted
+        #                              directory and --skip-git-repo-check
+        #                              was not specified."
+        # Earlier adapter used --full-auto + no skip-git-repo-check, which
+        # produced 20/20 error verdicts on real codex 0.134 (deprecated
+        # warning + trusted-dir fail).
+        return [
             self.codex_bin, "exec",
             "--cd", str(working_dir),
             "--json",
             "--model", self.model,
+            "--sandbox", self.sandbox_mode,
+            "--skip-git-repo-check",
+            prompt,
         ]
-        if self.full_auto:
-            cmd.append("--full-auto")
-        cmd.append(prompt)
-        return cmd
 
     def run(self, prompt: str, working_dir: Path) -> AgentRun:
         t0 = time.time()
@@ -104,15 +116,26 @@ class CodexCliAdapter:
         return self._parse_jsonl(proc.stdout, proc.stderr, proc.returncode, t0)
 
     def _parse_jsonl(self, stdout: str, stderr: str, rc: int, t0: float) -> AgentRun:
-        # Codex emits events. We accept multiple plausible event shapes
-        # documented by codex --help / openai's blog posts:
+        # codex 0.134 (Oct 2026) JSONL event schema, verified by probing
+        # `codex exec --json --model gpt-4o-mini`:
         #
-        #   {"type":"message","role":"assistant","content":[{"type":"text","text":"..."}]}
-        #   {"type":"tool_call","name":"shell","arguments":{"command":["bash","-lc","echo hi"]}}
-        #   {"type":"tool_result","output":"..."}
-        #   {"type":"completed","usage":{"input_tokens":N,"output_tokens":N,...}}
+        #   {"type":"thread.started","thread_id":"..."}
+        #   {"type":"turn.started"}
+        #   {"type":"item.started","item":{"id":"item_N","type":"command_execution",
+        #                                  "command":"...","status":"in_progress"}}
+        #   {"type":"item.completed","item":{"id":"item_N","type":"agent_message","text":"..."}}
+        #   {"type":"item.completed","item":{"id":"item_N","type":"command_execution",
+        #                                    "command":"...","aggregated_output":"...",
+        #                                    "exit_code":0,"status":"completed"}}
+        #   {"type":"turn.completed","usage":{"input_tokens":N,"output_tokens":N,
+        #                                     "cached_input_tokens":N,
+        #                                     "reasoning_output_tokens":N}}
         #
-        # We unify into output_text + tool_calls + tokens.
+        # Item types observed: "agent_message" (text) and "command_execution"
+        # (shell tool call). Other inner types (reasoning, etc.) ignored.
+        #
+        # The earlier adapter assumed message / tool_call / completed event
+        # types — wrong for 0.134, resulting in 20/20 empty output rows.
         output_parts: list[str] = []
         tool_calls: list[dict] = []
         tokens = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
@@ -129,24 +152,40 @@ class CodexCliAdapter:
 
             ev_type = ev.get("type")
 
-            if ev_type == "message" and ev.get("role") == "assistant":
-                for block in ev.get("content") or []:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        output_parts.append(block.get("text", ""))
+            if ev_type == "item.completed":
+                item = ev.get("item") or {}
+                item_type = item.get("type")
+                if item_type == "agent_message":
+                    text = item.get("text") or ""
+                    if text:
+                        output_parts.append(text)
+                elif item_type == "command_execution":
+                    command = item.get("command") or ""
+                    tc = {"name": "shell", "input": {"command": command}}
+                    tool_calls.append(tc)
+                    # Emit a [TOOL_USE ...] bracket so the oracle's
+                    # _TOOL_USE_BLOCK_RE picks this up as execution
+                    # evidence (matching the claude-code adapter's shape).
+                    output_parts.append(
+                        f"[TOOL_USE shell: {json.dumps(tc['input'], ensure_ascii=False)}]"
+                    )
+                    # Also include the command output for narrative context —
+                    # truncated since shell output can be long.
+                    agg = item.get("aggregated_output") or ""
+                    if agg:
+                        output_parts.append(
+                            f"[TOOL_RESULT shell exit={item.get('exit_code')}: "
+                            f"{agg[:500]}{'…' if len(agg) > 500 else ''}]"
+                        )
+                # Other item types (reasoning, etc.) intentionally ignored.
 
-            elif ev_type == "tool_call":
-                tc = {"name": ev.get("name"), "input": ev.get("arguments") or {}}
-                tool_calls.append(tc)
-                output_parts.append(
-                    f"[TOOL_USE {tc['name']}: {json.dumps(tc['input'], ensure_ascii=False)}]"
-                )
-
-            elif ev_type == "completed":
+            elif ev_type == "turn.completed":
                 u = ev.get("usage") or {}
                 tokens["input"] += int(u.get("input_tokens", 0) or 0)
                 tokens["output"] += int(u.get("output_tokens", 0) or 0)
-                # Codex's usage doesn't currently expose cache breakdown like
-                # Anthropic's; leave cache_read/cache_create at 0.
+                tokens["cache_read"] += int(u.get("cached_input_tokens", 0) or 0)
+                # codex 0.134 doesn't expose cache_creation tokens separately
+                # like Anthropic does; leave cache_create at 0.
 
             elif ev_type == "error":
                 error_text = (ev.get("message") or ev.get("error") or "unknown error")[:500]
